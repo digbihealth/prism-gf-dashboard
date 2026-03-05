@@ -220,20 +220,20 @@ if has_dates:
         )
         daily["Cumulative"] = daily["New Enrollments"].cumsum()
 
-        # Current week table — above charts
-        today      = pd.Timestamp.today().normalize()
-        week_start = today - pd.Timedelta(days=today.dayofweek)
-        week_data  = daily[daily["date"] >= week_start].copy()
-        week_data["date"] = week_data["date"].dt.strftime("%A, %b %d")
+        # Current month table — above charts
+        today       = pd.Timestamp.today().normalize()
+        month_start = today.replace(day=1)
+        month_data  = daily[daily["date"] >= month_start].copy()
+        month_data["date"] = month_data["date"].dt.strftime("%A, %b %d")
 
-        st.markdown("#### 📋 This Week's Enrollments by Day")
-        if not week_data.empty:
+        st.markdown(f"#### 📋 {today.strftime('%B %Y')} Enrollments by Day")
+        if not month_data.empty:
             st.dataframe(
-                week_data.rename(columns={"date": "Day", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
+                month_data.rename(columns={"date": "Day", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
                 use_container_width=True, hide_index=True
             )
         else:
-            st.info("No enrollments yet this week.")
+            st.info(f"No enrollments yet in {today.strftime('%B %Y')}.")
 
         ca, cb = st.columns(2)
         with ca:
