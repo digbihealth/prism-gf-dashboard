@@ -8,11 +8,12 @@ import json
 st.set_page_config(
     page_title="PRISM Grandfathered Enrollment Dashboard",
     layout="wide",
-    page_icon="📊"
+    page_icon="👴"
 )
 
 BASE_URL    = "https://api.iterable.com/api"
-CUTOFF_DATE = pd.Timestamp("2025-12-01")
+CUTOFF_DATE    = pd.Timestamp("2025-12-01")
+CAMPAIGN_START = pd.Timestamp("2026-03-03")
 
 def get_headers(project: str) -> dict:
     key_map = {
@@ -117,7 +118,7 @@ with st.sidebar:
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
-st.title("📊 PRISM Grandfathered Enrollment Dashboard")
+st.title("👴 PRISM Grandfathered Enrollment Dashboard")
 st.caption("Tracking total vs. enrolled PRISM Grandfathered users · Real-time from Iterable · From Dec 1, 2025")
 
 missing_keys = []
@@ -187,13 +188,20 @@ else:
     has_dates = False
     app_dl_count, app_dl_rate = 0, 0.0
 
+# Campaign enrollments — since Mar 3, 2026
+if has_dates:
+    campaign_enrolled = int((df_enrolled["date"] >= CAMPAIGN_START).sum())
+else:
+    campaign_enrolled = 0
+
 # ─── KPI TILES ────────────────────────────────────────────────────────────────
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Total PRISM Grandfathered", f"{total_count:,}",       help="Digbi_preEnrollment · List 7948771")
-c2.metric("Enrolled in Digbi Health",  f"{enrolled_count:,}",    help="Digbi Health · List 9021040")
-c3.metric("Enrollment Rate",           f"{pct:.1f}%",            help="Enrolled / Total Grandfathered")
-c4.metric("App Download Rate",         f"{app_dl_rate:.1f}%",    help=f"{app_dl_count:,} enrolled members have downloaded the app")
+c1, c2, c3, c4, c5 = st.columns(5)
+c1.metric("Total PRISM Grandfathered", f"{total_count:,}",        help="Digbi_preEnrollment · List 7948771")
+c2.metric("Enrolled in Digbi Health",  f"{enrolled_count:,}",     help="Digbi Health · List 9021040")
+c3.metric("Enrolled Since Mar 3",      f"{campaign_enrolled:,}",  help="Enrollments since campaign launch on Mar 3, 2026")
+c4.metric("Enrollment Rate",           f"{pct:.1f}%",             help="Enrolled / Total Grandfathered")
+c5.metric("App Download Rate",         f"{app_dl_rate:.1f}%",     help=f"{app_dl_count:,} enrolled members have downloaded the app")
 
 st.markdown("---")
 
@@ -212,6 +220,21 @@ if has_dates:
         )
         daily["Cumulative"] = daily["New Enrollments"].cumsum()
 
+        # Current week table — above charts
+        today      = pd.Timestamp.today().normalize()
+        week_start = today - pd.Timedelta(days=today.dayofweek)
+        week_data  = daily[daily["date"] >= week_start].copy()
+        week_data["date"] = week_data["date"].dt.strftime("%A, %b %d")
+
+        st.markdown("#### 📋 This Week's Enrollments by Day")
+        if not week_data.empty:
+            st.dataframe(
+                week_data.rename(columns={"date": "Day", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("No enrollments yet this week.")
+
         ca, cb = st.columns(2)
         with ca:
             fig = px.bar(daily, x="date", y="New Enrollments",
@@ -227,21 +250,6 @@ if has_dates:
             fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig2, use_container_width=True)
 
-        # Current week table
-        today      = pd.Timestamp.today().normalize()
-        week_start = today - pd.Timedelta(days=today.dayofweek)
-        week_data  = daily[daily["date"] >= week_start].copy()
-        week_data["date"] = week_data["date"].dt.strftime("%A, %b %d")
-
-        st.markdown("#### 📋 This Week's Enrollments by Day")
-        if not week_data.empty:
-            st.dataframe(
-                week_data.rename(columns={"date": "Day", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
-                use_container_width=True, hide_index=True
-            )
-        else:
-            st.info("No enrollments yet this week.")
-
     # ── BY MONTH ──
     with tab2:
         monthly = (
@@ -251,6 +259,15 @@ if has_dates:
             .sort_values("month")
         )
         monthly["Cumulative"] = monthly["New Enrollments"].cumsum()
+
+        # Monthly table — above charts
+        st.markdown("#### 📋 Enrollments by Month")
+        monthly_display = monthly.copy()
+        monthly_display["month"] = pd.to_datetime(monthly_display["month"]).dt.strftime("%B %Y")
+        st.dataframe(
+            monthly_display.rename(columns={"month": "Month", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
+            use_container_width=True, hide_index=True
+        )
 
         ca, cb = st.columns(2)
         with ca:
@@ -265,15 +282,6 @@ if has_dates:
                            color_discrete_sequence=["#5CB85C"])
             fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig4, use_container_width=True)
-
-        # Monthly table
-        st.markdown("#### 📋 Enrollments by Month")
-        monthly_display = monthly.copy()
-        monthly_display["month"] = pd.to_datetime(monthly_display["month"]).dt.strftime("%B %Y")
-        st.dataframe(
-            monthly_display.rename(columns={"month": "Month", "New Enrollments": "Enrollments", "Cumulative": "Cumulative Total"}),
-            use_container_width=True, hide_index=True
-        )
 
 else:
     st.info("No enrollment date data found — charts unavailable.")
