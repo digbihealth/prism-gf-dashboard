@@ -174,6 +174,10 @@ if enrolled_count > 0:
         df_enrolled = parse_dates(df_enrolled, "enrollmentDateFormatted")
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
+
+# Recalculate enrolled_count based on cutoff-filtered data
+enrolled_count = len(df_enrolled)
+pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
     else:
         has_dates = False
 
@@ -187,6 +191,8 @@ if enrolled_count > 0:
 else:
     has_dates = False
     app_dl_count, app_dl_rate = 0, 0.0
+    enrolled_count = enrolled_count_raw
+    pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 
 # Campaign enrollments — since Mar 3, 2026
 if has_dates:
@@ -196,12 +202,43 @@ else:
 
 # ─── KPI TILES ────────────────────────────────────────────────────────────────
 
+# Velocity calculations
+today            = pd.Timestamp.today().normalize()
+month_start      = today.replace(day=1)
+days_passed      = max((today - month_start).days, 1)  # avoid div by zero on 1st
+days_in_month    = pd.Period(today, "M").days_in_month
+days_left        = max(days_in_month - today.day, 1)
+
+if has_dates:
+    month_enrollments    = int((df_enrolled["date"] >= month_start).sum())
+else:
+    month_enrollments    = 0
+
+current_velocity  = month_enrollments / days_passed
+remaining         = max(total_count - enrolled_count, 0)
+expected_velocity = remaining / days_left
+
+# Row 1 — 5 KPI tiles
 c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Total PRISM Grandfathered", f"{total_count:,}",        help="Digbi_preEnrollment · List 7948771")
-c2.metric("Enrolled in Digbi Health",  f"{enrolled_count:,}",     help="Digbi Health · List 9021040")
-c3.metric("Enrolled Since Mar 3",      f"{campaign_enrolled:,}",  help="Enrollments since campaign launch on Mar 3, 2026")
-c4.metric("Enrollment Rate",           f"{pct:.1f}%",             help="Enrolled / Total Grandfathered")
+c2.metric("Enrolled in Digbi Health",  f"{enrolled_count:,}",     help="Digbi Health · List 9021040 · From Dec 1, 2025")
+c3.metric("Enrollment Rate",           f"{pct:.1f}%",             help="Enrolled / Total Grandfathered")
+c4.metric("Enrolled Since Mar 3",      f"{campaign_enrolled:,}",  help="Enrollments since campaign launch on Mar 3, 2026")
 c5.metric("App Download Rate",         f"{app_dl_rate:.1f}%",     help=f"{app_dl_count:,} enrolled members have downloaded the app")
+
+# Row 2 — velocity metrics
+st.markdown("")
+cv1, cv2 = st.columns(2)
+cv1.metric(
+    f"{today.strftime('%B')} Enrollment Velocity",
+    f"{current_velocity:.1f} / day",
+    help=f"{month_enrollments} enrollments over {days_passed} days this month"
+)
+cv2.metric(
+    "Expected Velocity Needed",
+    f"{expected_velocity:.1f} / day",
+    help=f"{remaining:,} unenrolled members · {days_left} days left in {today.strftime('%B')}"
+)
 
 st.markdown("---")
 
