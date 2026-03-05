@@ -23,12 +23,8 @@ def get_headers(project: str) -> dict:
 # ─── DATA FETCHING ────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def fetch_list_users(project: str, list_id: int) -> list[dict]:
-    """
-    Fetch users from a list using getUsers endpoint (works with server-side keys).
-    Returns list of user dicts.
-    """
-    users = []
+def fetch_list_emails(project: str, list_id: int) -> list[str]:
+    """Fetch plain email list from Iterable getUsers (returns one email per line)."""
     resp = requests.get(
         f"{BASE_URL}/lists/getUsers",
         headers=get_headers(project),
@@ -37,35 +33,79 @@ def fetch_list_users(project: str, list_id: int) -> list[dict]:
         timeout=300,
     )
     resp.raise_for_status()
+    emails = []
     for line in resp.iter_lines():
         if line:
-            try:
-                obj = json.loads(line)
-                # getUsers returns {email, dataFields} or flat user object
-                if "dataFields" in obj:
-                    flat = {"email": obj.get("email", "")}
-                    flat.update(obj["dataFields"])
-                    users.append(flat)
-                else:
-                    users.append(obj)
-            except json.JSONDecodeError:
-                continue
-    return users
+            decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+            decoded = decoded.strip()
+            if decoded:
+                # Handle JSON or plain email
+                try:
+                    obj = json.loads(decoded)
+                    email = obj.get("email", "")
+                    if email:
+                        emails.append(email)
+                except json.JSONDecodeError:
+                    emails.append(decoded)
+    return emails
 
-@st.cache_data(ttl=1800, show_spinner=False)  
-def fetch_list_count(project: str, list_id: int) -> int:
-    """Get user count for a list."""
-    resp = requests.get(
-        f"{BASE_URL}/lists",
-        headers=get_headers(project),
-        timeout=30,
-    )
-    resp.raise_for_status()
-    lists = resp.json().get("lists", [])
-    for l in lists:
-        if l.get("id") == list_id:
-            return l.get("userCount", 0) or l.get("size", 0)
-    return 0
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_user_fields(project: str, emails: tuple, fields: tuple) -> list[dict]:
+    """
+    Fetch specific profile fields for a list of users.
+    Uses /users/bulkGet — batches 100 at a time.
+    Falls back to individual /users/{email} calls if bulk not available.
+    """
+    headers = get_headers(project)
+    results = []
+    batch_size = 100
+    email_list = list(emails)
+    
+    progress = st.progress(0, text="Loading user profiles...")
+    total_batches = max(1, len(email_list) // batch_size + 1)
+    
+    for i in range(0, len(email_list), batch_size):
+        batch = email_list[i:i+batch_size]
+        try:
+            resp = requests.post(
+                f"{BASE_URL}/users/bulkGet",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"emails": batch, "fields": list(fields)},
+                timeout=30,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for u in data.get("users", []):
+                    row = {"email": u.get("email", "")}
+                    row.update(u.get("dataFields", {}))
+                    results.append(row)
+            else:
+                # Fallback: individual calls
+                for email in batch:
+                    try:
+                        r = requests.get(
+                            f"{BASE_URL}/users/{email}",
+                            headers=headers,
+                            timeout=10,
+                        )
+                        if r.status_code == 200:
+                            u = r.json().get("user", {})
+                            row = {"email": email}
+                            row.update(u.get("dataFields", {}))
+                            results.append(row)
+                    except Exception:
+                        results.append({"email": email})
+        except Exception:
+            for email in batch:
+                results.append({"email": email})
+        
+        progress.progress(
+            min(1.0, (i + batch_size) / max(len(email_list), 1)),
+            text=f"Loading user profiles... {min(i+batch_size, len(email_list))}/{len(email_list)}"
+        )
+    
+    progress.empty()
+    return results
 
 def parse_dates(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
     df = df.copy()
@@ -107,53 +147,34 @@ if missing_keys:
     st.error(f"Missing API key(s): {', '.join(missing_keys)} — add to Streamlit secrets.")
     st.stop()
 
-# List IDs
-TOTAL_GF_LIST_ID    = 7948771  # Digbi_preEnrollment project
-ENROLLED_GF_LIST_ID = 9021040  # Digbi Health project
+TOTAL_GF_LIST_ID    = 7948771  # Digbi_preEnrollment
+ENROLLED_GF_LIST_ID = 9021040  # Digbi Health
 
 # ─── LOAD DATA ────────────────────────────────────────────────────────────────
 
-col_load1, col_load2 = st.columns(2)
+with st.spinner("Fetching total PRISM GF users from preEnrollment..."):
+    try:
+        total_emails = fetch_list_emails("preenrollment", TOTAL_GF_LIST_ID)
+        total_count  = len(total_emails)
+    except requests.HTTPError as e:
+        st.error(f"preEnrollment API error: {e.response.status_code} — {e.response.text[:200]}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.stop()
 
-with col_load1:
-    with st.spinner("Fetching total PRISM GF users..."):
-        try:
-            # First try to get count from list metadata (fast)
-            total_count = fetch_list_count("preenrollment", TOTAL_GF_LIST_ID)
-            if total_count == 0:
-                # Fallback: fetch actual users and count
-                raw_total = fetch_list_users("preenrollment", TOTAL_GF_LIST_ID)
-                total_count = len(raw_total)
-        except requests.HTTPError as e:
-            st.error(f"preEnrollment API error: {e.response.status_code}")
-            st.stop()
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.stop()
+with st.spinner("Fetching enrolled PRISM GF users from Digbi Health..."):
+    try:
+        enrolled_emails = fetch_list_emails("digbi_health", ENROLLED_GF_LIST_ID)
+    except requests.HTTPError as e:
+        st.error(f"Digbi Health API error: {e.response.status_code} — {e.response.text[:200]}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error: {e}")
+        st.stop()
 
-with col_load2:
-    with st.spinner("Fetching enrolled PRISM GF users..."):
-        try:
-            raw_enrolled = fetch_list_users("digbi_health", ENROLLED_GF_LIST_ID)
-            df_enrolled = pd.DataFrame(raw_enrolled)
-        except requests.HTTPError as e:
-            st.error(f"Digbi Health API error: {e.response.status_code}")
-            st.stop()
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.stop()
-
-# Parse dates
-if not df_enrolled.empty:
-    date_col = next(
-        (c for c in ["enrollmentDateFormatted", "enrollmentDate", "signUpDate", "createdAt"]
-         if c in df_enrolled.columns and df_enrolled[c].notna().any()),
-        None
-    )
-    if date_col:
-        df_enrolled = parse_dates(df_enrolled, date_col)
-
-enrolled_count = len(df_enrolled)
+# Fetch enrollment dates for enrolled users
+enrolled_count = len(enrolled_emails)
 pct = (enrolled_count / total_count * 100) if total_count > 0 else 0
 
 # ─── KPI TILES ────────────────────────────────────────────────────────────────
@@ -165,78 +186,90 @@ c3.metric("Enrollment Rate",           f"{pct:.1f}%")
 
 st.markdown("---")
 
-# ─── CHARTS ───────────────────────────────────────────────────────────────────
+# ─── FETCH DATES & CHARTS ─────────────────────────────────────────────────────
 
-has_dates = (
-    not df_enrolled.empty
-    and "date" in df_enrolled.columns
-    and df_enrolled["date"].notna().any()
-)
+if enrolled_count > 0:
+    user_data = fetch_user_fields(
+        "digbi_health",
+        tuple(enrolled_emails),
+        ("enrollmentDateFormatted",)
+    )
+    df_enrolled = pd.DataFrame(user_data)
 
-if has_dates:
-    tab1, tab2 = st.tabs(["📅 By Day", "📆 By Month"])
+    has_date_col = (
+        "enrollmentDateFormatted" in df_enrolled.columns
+        and df_enrolled["enrollmentDateFormatted"].notna().any()
+    )
 
-    with tab1:
-        daily = (
-            df_enrolled.dropna(subset=["date"])
-            .groupby("date").size()
-            .reset_index(name="New Enrollments")
-            .sort_values("date")
-        )
-        daily["Cumulative"] = daily["New Enrollments"].cumsum()
+    if has_date_col:
+        df_enrolled = parse_dates(df_enrolled, "enrollmentDateFormatted")
+        has_dates = df_enrolled["date"].notna().any()
+    else:
+        has_dates = False
 
-        ca, cb = st.columns(2)
-        with ca:
-            fig = px.bar(daily, x="date", y="New Enrollments",
-                         title="New Enrollments by Day",
-                         color_discrete_sequence=["#4F86C6"])
-            fig.update_layout(hovermode="x unified",
-                              plot_bgcolor="rgba(0,0,0,0)",
-                              paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True)
-        with cb:
-            fig2 = px.area(daily, x="date", y="Cumulative",
-                           title="Cumulative Enrollments",
-                           color_discrete_sequence=["#5CB85C"])
-            fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)",
-                               paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig2, use_container_width=True)
+    if has_dates:
+        tab1, tab2 = st.tabs(["📅 By Day", "📆 By Month"])
 
-        with st.expander("View daily data"):
-            st.dataframe(daily, use_container_width=True, hide_index=True)
+        with tab1:
+            daily = (
+                df_enrolled.dropna(subset=["date"])
+                .groupby("date").size()
+                .reset_index(name="New Enrollments")
+                .sort_values("date")
+            )
+            daily["Cumulative"] = daily["New Enrollments"].cumsum()
 
-    with tab2:
-        monthly = (
-            df_enrolled.dropna(subset=["month"])
-            .groupby("month").size()
-            .reset_index(name="New Enrollments")
-            .sort_values("month")
-        )
-        monthly["Cumulative"] = monthly["New Enrollments"].cumsum()
+            ca, cb = st.columns(2)
+            with ca:
+                fig = px.bar(daily, x="date", y="New Enrollments",
+                             title="New Enrollments by Day",
+                             color_discrete_sequence=["#4F86C6"])
+                fig.update_layout(hovermode="x unified",
+                                  plot_bgcolor="rgba(0,0,0,0)",
+                                  paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig, use_container_width=True)
+            with cb:
+                fig2 = px.area(daily, x="date", y="Cumulative",
+                               title="Cumulative Enrollments",
+                               color_discrete_sequence=["#5CB85C"])
+                fig2.update_layout(plot_bgcolor="rgba(0,0,0,0)",
+                                   paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig2, use_container_width=True)
 
-        ca, cb = st.columns(2)
-        with ca:
-            fig3 = px.bar(monthly, x="month", y="New Enrollments",
-                          title="New Enrollments by Month",
-                          color_discrete_sequence=["#4F86C6"])
-            fig3.update_layout(plot_bgcolor="rgba(0,0,0,0)",
-                               paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig3, use_container_width=True)
-        with cb:
-            fig4 = px.area(monthly, x="month", y="Cumulative",
-                           title="Cumulative Enrollments by Month",
-                           color_discrete_sequence=["#5CB85C"])
-            fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)",
-                               paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig4, use_container_width=True)
+            with st.expander("View daily data"):
+                st.dataframe(daily, use_container_width=True, hide_index=True)
 
-        with st.expander("View monthly data"):
-            st.dataframe(monthly, use_container_width=True, hide_index=True)
+        with tab2:
+            monthly = (
+                df_enrolled.dropna(subset=["month"])
+                .groupby("month").size()
+                .reset_index(name="New Enrollments")
+                .sort_values("month")
+            )
+            monthly["Cumulative"] = monthly["New Enrollments"].cumsum()
 
+            ca, cb = st.columns(2)
+            with ca:
+                fig3 = px.bar(monthly, x="month", y="New Enrollments",
+                              title="New Enrollments by Month",
+                              color_discrete_sequence=["#4F86C6"])
+                fig3.update_layout(plot_bgcolor="rgba(0,0,0,0)",
+                                   paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig3, use_container_width=True)
+            with cb:
+                fig4 = px.area(monthly, x="month", y="Cumulative",
+                               title="Cumulative Enrollments by Month",
+                               color_discrete_sequence=["#5CB85C"])
+                fig4.update_layout(plot_bgcolor="rgba(0,0,0,0)",
+                                   paper_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig4, use_container_width=True)
+
+            with st.expander("View monthly data"):
+                st.dataframe(monthly, use_container_width=True, hide_index=True)
+    else:
+        st.info("No `enrollmentDateFormatted` found in user profiles — charts unavailable.")
 else:
-    st.info("Charts will appear once enrollment date data is available.")
-    if not df_enrolled.empty:
-        st.dataframe(df_enrolled.head(50), use_container_width=True, hide_index=True)
+    st.info("No enrolled users found in list 9021040.")
 
 st.markdown("---")
 st.caption(f"Last loaded: {datetime.now().strftime('%b %d, %Y %I:%M %p')} · Source: Iterable API")
