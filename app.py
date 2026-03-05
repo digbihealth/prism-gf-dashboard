@@ -174,12 +174,12 @@ if enrolled_count > 0:
         df_enrolled = parse_dates(df_enrolled, "enrollmentDateFormatted")
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
-
-# Recalculate enrolled_count based on cutoff-filtered data
-enrolled_count = len(df_enrolled)
-pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
     else:
         has_dates = False
+
+    # Recalculate enrolled_count based on cutoff-filtered data
+    enrolled_count = len(df_enrolled)
+    pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 
     # App download rate
     if "appDownload" in df_enrolled.columns:
@@ -189,7 +189,7 @@ pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
     else:
         app_dl_count, app_dl_rate = 0, 0.0
 else:
-    has_dates = False
+    has_dates      = False
     app_dl_count, app_dl_rate = 0, 0.0
     enrolled_count = enrolled_count_raw
     pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
