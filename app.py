@@ -34,8 +34,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 BASE_URL    = "https://api.iterable.com/api"
-CUTOFF_DATE    = pd.Timestamp("2025-12-01", tz="UTC")
-CAMPAIGN_START = pd.Timestamp("2026-03-03", tz="UTC")
+CUTOFF_DATE    = pd.Timestamp("2025-12-01")
+CAMPAIGN_START = pd.Timestamp("2026-03-03")
 
 def get_headers(project: str) -> dict:
     key_map = {
@@ -194,6 +194,9 @@ if enrolled_count > 0:
     )
     if has_date_col:
         df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
+        # Strip tz from date column so comparisons with tz-naive timestamps work
+        df_enrolled["date"] = df_enrolled["date"].dt.tz_localize(None) if df_enrolled["date"].dt.tz is None else df_enrolled["date"].dt.tz_convert(None)
+        df_enrolled["enrollmentDate"] = df_enrolled["enrollmentDate"].dt.tz_localize(None) if df_enrolled["enrollmentDate"].dt.tz is None else df_enrolled["enrollmentDate"].dt.tz_convert(None)
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
     else:
@@ -225,7 +228,7 @@ else:
 # ─── KPI TILES ────────────────────────────────────────────────────────────────
 
 # Velocity calculations
-today            = pd.Timestamp.now(tz="UTC").normalize()
+today            = pd.Timestamp.today().normalize()
 month_start      = today.replace(day=1)
 days_passed      = max((today - month_start).days, 1)  # avoid div by zero on 1st
 days_in_month    = pd.Period(today, "M").days_in_month
@@ -280,7 +283,7 @@ if has_dates:
         daily["Cumulative"] = daily["New Enrollments"].cumsum()
 
         # Current month table — above charts
-        today       = pd.Timestamp.now(tz="UTC").normalize()
+        today       = pd.Timestamp.today().normalize()
         month_start = today.replace(day=1)
         month_data  = daily[daily["date"] >= month_start].copy()
         month_data["date"] = month_data["date"].dt.strftime("%A, %b %d")
