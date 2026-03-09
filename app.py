@@ -184,24 +184,20 @@ pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 # ─── FETCH PROFILES ───────────────────────────────────────────────────────────
 
 if enrolled_count > 0:
-    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("enrollmentDate", "appDownload"))
+    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("signupDate", "appDownload"))
     df_enrolled = pd.DataFrame(user_data)
 
     # Parse & filter dates
     has_date_col = (
-        "enrollmentDate" in df_enrolled.columns
-        and df_enrolled["enrollmentDate"].notna().any()
+        "signupDate" in df_enrolled.columns
+        and df_enrolled["signupDate"].notna().any()
     )
     if has_date_col:
-        df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
+        df_enrolled = parse_dates(df_enrolled, "signupDate")
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
     else:
         has_dates = False
-
-    # Debug: show what fields came back from bulkGet
-    with st.expander("🔍 Debug — raw fields returned by Iterable (first 3 users)"):
-        st.write(df_enrolled.head(3))
 
     # Recalculate enrolled_count based on cutoff-filtered data
     enrolled_count = len(df_enrolled)
