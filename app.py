@@ -178,38 +178,39 @@ if enrolled_count > 0:
     user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("enrollmentDate", "appDownload"))
     df_enrolled = pd.DataFrame(user_data)
 
-    # Parse & filter dates
+    # enrolled_count comes from list membership (source of truth) — don't filter it
+    # Parse dates for charts only — users without enrollmentDate still count as enrolled
     has_date_col = (
         "enrollmentDate" in df_enrolled.columns
         and df_enrolled["enrollmentDate"].notna().any()
     )
     if has_date_col:
         df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
-        df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
-        has_dates   = df_enrolled["date"].notna().any()
+        # Only filter chart data by cutoff — keep df_enrolled full for KPI counts
+        df_chart = df_enrolled[df_enrolled["date"].notna() & (df_enrolled["date"] >= CUTOFF_DATE)]
+        has_dates = len(df_chart) > 0
     else:
+        df_chart  = df_enrolled.copy()
         has_dates = False
 
-    # Recalculate enrolled_count based on cutoff-filtered data
-    enrolled_count = len(df_enrolled)
     pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 
-    # App download rate
+    # App download rate — based on full enrolled list
     if "appDownload" in df_enrolled.columns:
-        downloaded     = df_enrolled["appDownload"].notna() & (df_enrolled["appDownload"].astype(str).str.strip() != "")
-        app_dl_count   = int(downloaded.sum())
-        app_dl_rate    = (app_dl_count / len(df_enrolled) * 100) if len(df_enrolled) > 0 else 0.0
+        downloaded   = pd.to_numeric(df_enrolled["appDownload"], errors="coerce").notna()
+        app_dl_count = int(downloaded.sum())
+        app_dl_rate  = (app_dl_count / enrolled_count * 100) if enrolled_count > 0 else 0.0
     else:
         app_dl_count, app_dl_rate = 0, 0.0
 else:
+    df_chart       = pd.DataFrame()
     has_dates      = False
     app_dl_count, app_dl_rate = 0, 0.0
-    enrolled_count = enrolled_count_raw
     pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 
 # Campaign enrollments — since Mar 3, 2026
 if has_dates:
-    campaign_enrolled = int((df_enrolled["date"] >= CAMPAIGN_START).sum())
+    campaign_enrolled = int((df_chart["date"] >= CAMPAIGN_START).sum())
 else:
     campaign_enrolled = 0
 
