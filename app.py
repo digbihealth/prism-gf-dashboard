@@ -73,43 +73,38 @@ def fetch_list_emails(project: str, list_id: int) -> list[str]:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_user_fields(project: str, emails: tuple, fields: tuple) -> list[dict]:
-    headers   = get_headers(project)
-    results   = []
-    batch_size = 100
+    """Fetch user profile fields using GET /users/{email}, threaded for speed."""
+    import concurrent.futures, threading
+    headers    = get_headers(project)
     email_list = list(emails)
+    results    = []
     progress   = st.progress(0, text="Loading user profiles...")
-    for i in range(0, len(email_list), batch_size):
-        batch = email_list[i:i+batch_size]
+    lock       = threading.Lock()
+    completed  = [0]
+
+    def fetch_one(email):
         try:
-            resp = requests.post(
-                f"{BASE_URL}/users/bulkGet",
-                headers={**headers, "Content-Type": "application/json"},
-                json={"emails": batch, "fields": list(fields)},
-                timeout=30,
+            r = requests.get(
+                f"{BASE_URL}/users/{requests.utils.quote(email, safe='')}",
+                headers=headers, timeout=15
             )
-            if resp.status_code == 200:
-                for u in resp.json().get("users", []):
-                    row = {"email": u.get("email", "")}
-                    row.update(u.get("dataFields", {}))
-                    results.append(row)
-            else:
-                for email in batch:
-                    try:
-                        r = requests.get(f"{BASE_URL}/users/{email}", headers=headers, timeout=10)
-                        if r.status_code == 200:
-                            u = r.json().get("user", {})
-                            row = {"email": email}
-                            row.update(u.get("dataFields", {}))
-                            results.append(row)
-                    except Exception:
-                        results.append({"email": email})
+            if r.status_code == 200:
+                u = r.json().get("user", {})
+                row = {"email": email}
+                row.update({k: v for k, v in u.get("dataFields", {}).items() if k in fields})
+                return row
         except Exception:
-            for email in batch:
-                results.append({"email": email})
-        progress.progress(
-            min(1.0, (i + batch_size) / max(len(email_list), 1)),
-            text=f"Loading user profiles... {min(i+batch_size, len(email_list))}/{len(email_list)}"
-        )
+            pass
+        return {"email": email}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(fetch_one, e): e for e in email_list}
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
+            with lock:
+                completed[0] += 1
+                pct = completed[0] / len(email_list)
+                progress.progress(pct, text=f"Loading user profiles... {completed[0]:,}/{len(email_list):,}")
     progress.empty()
     return results
 
