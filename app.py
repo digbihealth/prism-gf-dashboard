@@ -184,16 +184,16 @@ pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 # ─── FETCH PROFILES ───────────────────────────────────────────────────────────
 
 if enrolled_count > 0:
-    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("signupDate", "appDownload"))
+    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("enrollmentDate", "appDownload"))
     df_enrolled = pd.DataFrame(user_data)
 
     # Parse & filter dates
     has_date_col = (
-        "signupDate" in df_enrolled.columns
-        and df_enrolled["signupDate"].notna().any()
+        "enrollmentDate" in df_enrolled.columns
+        and df_enrolled["enrollmentDate"].notna().any()
     )
     if has_date_col:
-        df_enrolled = parse_dates(df_enrolled, "signupDate")
+        df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
     else:
