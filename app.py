@@ -11,6 +11,28 @@ st.set_page_config(
     page_icon="👴"
 )
 
+# Force light mode regardless of browser preference
+st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #f8f9fa !important;
+        }
+        .stMetric, .stMetricLabel, .stMetricValue, .stMetricDelta {
+            color: #000000 !important;
+        }
+        p, h1, h2, h3, h4, h5, h6, span, div, label {
+            color: #000000 !important;
+        }
+        .stDataFrame, [data-testid="stTable"] {
+            background-color: #ffffff !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 BASE_URL    = "https://api.iterable.com/api"
 CUTOFF_DATE    = pd.Timestamp("2025-12-01")
 CAMPAIGN_START = pd.Timestamp("2026-03-03")
@@ -162,16 +184,16 @@ pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
 # ─── FETCH PROFILES ───────────────────────────────────────────────────────────
 
 if enrolled_count > 0:
-    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("enrollmentDateFormatted", "appDownload"))
+    user_data   = fetch_user_fields("digbi_health", tuple(enrolled_emails), ("enrollmentDate", "appDownload"))
     df_enrolled = pd.DataFrame(user_data)
 
     # Parse & filter dates
     has_date_col = (
-        "enrollmentDateFormatted" in df_enrolled.columns
-        and df_enrolled["enrollmentDateFormatted"].notna().any()
+        "enrollmentDate" in df_enrolled.columns
+        and df_enrolled["enrollmentDate"].notna().any()
     )
     if has_date_col:
-        df_enrolled = parse_dates(df_enrolled, "enrollmentDateFormatted")
+        df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
     else:
