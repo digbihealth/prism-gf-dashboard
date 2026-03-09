@@ -34,8 +34,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 BASE_URL    = "https://api.iterable.com/api"
-CUTOFF_DATE    = pd.Timestamp("2025-12-01")
-CAMPAIGN_START = pd.Timestamp("2026-03-03")
+CUTOFF_DATE    = pd.Timestamp("2025-12-01", tz="UTC")
+CAMPAIGN_START = pd.Timestamp("2026-03-03", tz="UTC")
 
 def get_headers(project: str) -> dict:
     key_map = {
@@ -225,7 +225,7 @@ else:
 # ─── KPI TILES ────────────────────────────────────────────────────────────────
 
 # Velocity calculations
-today            = pd.Timestamp.today().normalize()
+today            = pd.Timestamp.now(tz="UTC").normalize()
 month_start      = today.replace(day=1)
 days_passed      = max((today - month_start).days, 1)  # avoid div by zero on 1st
 days_in_month    = pd.Period(today, "M").days_in_month
@@ -280,7 +280,7 @@ if has_dates:
         daily["Cumulative"] = daily["New Enrollments"].cumsum()
 
         # Current month table — above charts
-        today       = pd.Timestamp.today().normalize()
+        today       = pd.Timestamp.now(tz="UTC").normalize()
         month_start = today.replace(day=1)
         month_data  = daily[daily["date"] >= month_start].copy()
         month_data["date"] = month_data["date"].dt.strftime("%A, %b %d")
