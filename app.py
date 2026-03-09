@@ -109,16 +109,12 @@ def fetch_user_fields(project: str, emails: tuple, fields: tuple) -> list[dict]:
     return results
 
 def parse_dates(df: pd.DataFrame, date_col: str) -> pd.DataFrame:
+    """Parse enrollmentDate — stored as unix milliseconds integer e.g. 1767810222000."""
     df = df.copy()
-    df["enrollmentDate"] = pd.to_datetime(df[date_col], errors="coerce")
-    mask_failed = df["enrollmentDate"].isna() & df[date_col].notna()
-    if mask_failed.any():
-        try:
-            df.loc[mask_failed, "enrollmentDate"] = pd.to_datetime(
-                df.loc[mask_failed, date_col].astype(float), unit="ms", errors="coerce"
-            )
-        except Exception:
-            pass
+    # Convert to numeric first (handles both int and string representations)
+    numeric = pd.to_numeric(df[date_col], errors="coerce")
+    # Parse as unix ms — tz-naive for clean comparisons downstream
+    df["enrollmentDate"] = pd.to_datetime(numeric, unit="ms", errors="coerce")
     df["date"]  = df["enrollmentDate"].dt.normalize()
     df["month"] = df["enrollmentDate"].dt.to_period("M").astype(str)
     return df
@@ -189,9 +185,6 @@ if enrolled_count > 0:
     )
     if has_date_col:
         df_enrolled = parse_dates(df_enrolled, "enrollmentDate")
-        # Strip tz from date column so comparisons with tz-naive timestamps work
-        df_enrolled["date"] = df_enrolled["date"].dt.tz_localize(None) if df_enrolled["date"].dt.tz is None else df_enrolled["date"].dt.tz_convert(None)
-        df_enrolled["enrollmentDate"] = df_enrolled["enrollmentDate"].dt.tz_localize(None) if df_enrolled["enrollmentDate"].dt.tz is None else df_enrolled["enrollmentDate"].dt.tz_convert(None)
         df_enrolled = df_enrolled[df_enrolled["date"].isna() | (df_enrolled["date"] >= CUTOFF_DATE)]
         has_dates   = df_enrolled["date"].notna().any()
     else:
