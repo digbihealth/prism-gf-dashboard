@@ -199,6 +199,10 @@ if enrolled_count > 0:
     else:
         has_dates = False
 
+    # Debug: show what fields came back from bulkGet
+    with st.expander("🔍 Debug — raw fields returned by Iterable (first 3 users)"):
+        st.write(df_enrolled.head(3))
+
     # Recalculate enrolled_count based on cutoff-filtered data
     enrolled_count = len(df_enrolled)
     pct = (enrolled_count / total_count * 100) if total_count > 0 else 0.0
