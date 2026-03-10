@@ -11,27 +11,6 @@ st.set_page_config(
     page_icon="👴"
 )
 
-# Force light mode regardless of browser preference
-st.markdown("""
-    <style>
-        [data-testid="stAppViewContainer"], [data-testid="stApp"] {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-        }
-        [data-testid="stSidebar"] {
-            background-color: #f8f9fa !important;
-        }
-        .stMetric, .stMetricLabel, .stMetricValue, .stMetricDelta {
-            color: #000000 !important;
-        }
-        p, h1, h2, h3, h4, h5, h6, span, div, label {
-            color: #000000 !important;
-        }
-        .stDataFrame, [data-testid="stTable"] {
-            background-color: #ffffff !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 BASE_URL    = "https://api.iterable.com/api"
 CUTOFF_DATE    = pd.Timestamp("2025-12-01")
@@ -210,7 +189,7 @@ else:
 
 # Campaign enrollments — since Mar 3, 2026
 if has_dates:
-    campaign_enrolled = int((df_chart["date"] >= CAMPAIGN_START).sum())
+    campaign_enrolled = int((df_chart["date"] >= pd.Timestamp("2026-03-01")).sum())
 else:
     campaign_enrolled = 0
 
@@ -237,7 +216,7 @@ c1, c2, c3, c4, c5 = st.columns(5)
 c1.metric("Total PRISM Grandfathered", f"{total_count:,}",        help="Digbi_preEnrollment · List 7948771")
 c2.metric("Enrolled in Digbi Health",  f"{enrolled_count:,}",     help="Digbi Health · List 9021040 · From Dec 1, 2025")
 c3.metric("Enrollment Rate",           f"{pct:.1f}%",             help="Enrolled / Total Grandfathered")
-c4.metric("Enrolled Since Mar 3",      f"{campaign_enrolled:,}",  help="Enrollments since campaign launch on Mar 3, 2026")
+c4.metric("Enrolled in March",         f"{campaign_enrolled:,}",  help="Enrollments since March 1, 2026")
 c5.metric("App Download Rate",         f"{app_dl_rate:.1f}%",     help=f"{app_dl_count:,} enrolled members have downloaded the app")
 
 # Row 2 — velocity metrics
